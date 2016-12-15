@@ -1,0 +1,39 @@
+# common
+.*
+*~
+!.gitignore
+
+# autotools
+Makefile.in
+autoscan.log
+compile
+install-sh
+missing
+config.h.in
+aclocal.m4
+autom4te.cache/
+configure
+Makefile
+config.log
+config.h
+config.status
+stamp-h1
+depcomp
+m4/
+config.guess
+config.sub
+libtool
+ltmain.sh
+test-driver
+
+# C
+*.o
+*.lo
+*.so
+*.la
+tags
+cscope.*
+
+# executable
+src/frulrun
+
