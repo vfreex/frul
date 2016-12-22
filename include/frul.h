@@ -97,7 +97,7 @@ struct frul_buf {
     char data[];
 };
 
-#define RRUL_PROTO_VERSION 1
+#define FRUL_PROTO_VERSION 1
 #define FRUL_DEFAULT_MSS 1400
 #define FRUL_MAX_RECV_BUFFER 100000
 #define FRUL_MAX_SEND_BUFFER 100000

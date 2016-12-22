@@ -84,7 +84,7 @@ int frul_connect(struct frulcb *frul)
         return -1;
     }
     struct frul_hdr *hdr = frul_seg_hdr(buf);
-    hdr->ver = RRUL_PROTO_VERSION;
+    hdr->ver = FRUL_PROTO_VERSION;
     hdr->f_init = 1;
     if (frul_put_write_queue(frul, buf) == -1) {
         return -1;
@@ -92,6 +92,7 @@ int frul_connect(struct frulcb *frul)
     if (frul_flush(frul) == -1) {
         return -1;
     }
+    frul->state = FRUL_INIT_SENT;
     return 0;
     
 }
