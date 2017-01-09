@@ -1,1 +1,1 @@
-add_library(frul SHARED frul.c)
+add_library(frul SHARED frul.c ../include/common.h)
