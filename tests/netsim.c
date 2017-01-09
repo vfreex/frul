@@ -99,44 +99,42 @@ static void netsim_transmit(struct netsim *sim, struct netdev *from, struct netd
     long tokens_to_refill = max(max_tokens - from->tokens, max_tokens * TOKEN_REFILL_INTERVAL / 1000 * period_passed); 
     from->tokens += tokens_to_refill;
     from->refill_timestamp = cur + TOKEN_REFILL_INTERVAL;
-    
 
-
-    struct netpkt *pkt, *temp;
-    int *all = sim->stat_all;
-    int *loss = sim->stat_dropped;
-    list_for_each_entry_safe(pkt, temp, &from->write_queue, list) {
-        if (pkt->timestamp + sim->latency < cur) {
-            return;
-        }
-        list_del(&pkt->list);
-        ++from->tx_all;
-        ++*all;
-        if (netsim_random(0, 99) < sim->loss) {
-            // packet is loss
-            free(pkt);
-            ++*loss;
-            continue;
-        }
-        to->rx_all++;
-        if (to->read_queue_size >= to->read_queue_capacity) {
-            // insufficient receive buffer
-            free(pkt);
-            to->rx_dropped++;
-            continue;
-        }
-        list_add_tail(&pkt->list, &to->read_queue);
-    }   
+//    struct netpkt *pkt, *temp;
+//    int *all = sim->stat_all;
+//    int *loss = sim->stat_dropped;
+//    list_for_each_entry_safe(pkt, temp, &from->write_queue, list) {
+//        if (pkt->timestamp + sim->latency < cur) {
+//            return;
+//        }
+//        list_del(&pkt->list);
+//        ++from->tx_all;
+//        ++*all;
+//        if (netsim_random(0, 99) < sim->loss) {
+//            // packet is loss
+//            free(pkt);
+//            ++*loss;
+//            continue;
+//        }
+//        to->rx_all++;
+//        if (to->read_queue_size >= to->read_queue_capacity) {
+//            // insufficient receive buffer
+//            free(pkt);
+//            to->rx_dropped++;
+//            continue;
+//        }
+//        list_add_tail(&pkt->list, &to->read_queue);
+//    }
 }
 int netsim_clock_update(struct netsim *sim)
 {
-    long cur = netsim_timestamp();
-    
-    // peer0 -> peer1
-    int pkts_per_sec = sim->bandwidth / sim->pmtu / 8;
-    // peer0 -> peer1
-    netsim_transmit(sim, sim->peers, sim->peers + 1, cur);
-    // peer1 -> peer0
-    netsim_transmit(sim, sim->peers + 1, sim->peers, cur);
+//    long cur = netsim_timestamp();
+//
+//    // peer0 -> peer1
+//    int pkts_per_sec = sim->bandwidth / sim->pmtu / 8;
+//    // peer0 -> peer1
+//    netsim_transmit(sim, sim->peers, sim->peers + 1, cur);
+//    // peer1 -> peer0
+//    netsim_transmit(sim, sim->peers + 1, sim->peers, cur);
 }
 
