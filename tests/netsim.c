@@ -10,10 +10,11 @@
 #include <time.h>
 
 #include "common.h"
+#include "list.h"
 #include "debug.h"
 #include "netsim.h"
 
-static void netsim_dev_init(struct netdev *dev, int wmem, int rmem, int mtu,
+static void netsim_dev_init(struct netdev *dev, size_t wmem, size_t rmem, size_t mtu,
                             long bandwidth, int latency, int loss) {
   assert(dev != NULL);
   dev->write_maxmem = wmem;
@@ -35,13 +36,13 @@ struct netsim *netsim_create(long bandwidth, int latency, int loss) {
   struct netsim *p = malloc(sizeof(struct netsim));
   if (p) {
     memset(p, 0, sizeof(struct netsim));
-    netsim_dev_init(p->peers, 10000, 10000, 1500, 50 * 1000000L, 200, 5);
-    netsim_dev_init(p->peers + 1, 10000, 10000, 1500, 50 * 1000000L, 200, 5);
+    netsim_dev_init(p->peers, 10000 * 1500, 10000* 1500, 1500, 50 * 1000000L, 200, 5);
+    netsim_dev_init(p->peers + 1, 10000* 1500, 10000* 1500, 1500, 50 * 1000000L, 200, 5);
   }
   return p;
 }
 
-static long netsim_timestamp() {
+long netsim_timestamp() {
   struct timespec ts = {};
   if (clock_gettime(CLOCK_REALTIME, &ts) == -1)
     return 0;
@@ -50,17 +51,17 @@ static long netsim_timestamp() {
 
 ssize_t netsim_dev_write(struct netdev *dev, const char *buffer, size_t len) {
   if (len > dev->mtu) {
-    eprintf("packet is too large (current is %zu, maximum is %d)\n", len, dev->mtu);
+    eprintf("packet is too large (current is %zu, maximum is %zu)\n", len, dev->mtu);
     return -1;
   }
-  int new_writemem = dev->write_mem + len;
+  size_t new_writemem = dev->write_mem + len;
   if (new_writemem > dev->write_maxmem) {
     eprintf("maximum write_mem exceeded\n");
     return -1;
   }
   struct netpkt *pkt = malloc(sizeof(struct netpkt) + len);
   if (!pkt) {
-    eprintf("malloc error.\n");
+    eprintf("malloc error\n");
     return -1;
   }
   pkt->length = len;
@@ -77,52 +78,91 @@ int netsim_random(int min, int max) {
 
 #define TOKEN_REFILL_INTERVAL 100 // in ms
 
-static void netsim_transmit(struct netsim *sim, struct netdev *from, struct netdev *to, long cur) {
+static long netsim_transmit(struct netsim *sim, struct netdev *from, struct netdev *to, long cur) {
   // refill the token bucket
   long max_tokens = from->bandwidth / 8;
   long period_passed = cur - from->refill_timestamp / TOKEN_REFILL_INTERVAL + 1;
   if (period_passed < 1) {
-    return;
+    return from->refill_timestamp;
   }
   // FIXME: overflow risk
   long tokens_to_refill = max(max_tokens - from->tokens, max_tokens * TOKEN_REFILL_INTERVAL / 1000 * period_passed);
   from->tokens += tokens_to_refill;
   from->refill_timestamp = cur + TOKEN_REFILL_INTERVAL;
 
-//    struct netpkt *pkt, *temp;
-//    int *all = sim->stat_all;
-//    int *loss = sim->stat_dropped;
-//    list_for_each_entry_safe(pkt, temp, &from->write_queue, list) {
-//        if (pkt->timestamp + sim->latency < cur) {
-//            return;
-//        }
-//        list_del(&pkt->list);
-//        ++from->tx_all;
-//        ++*all;
-//        if (netsim_random(0, 99) < sim->loss) {
-//            // packet is loss
-//            free(pkt);
-//            ++*loss;
-//            continue;
-//        }
-//        to->rx_all++;
-//        if (to->read_queue_size >= to->read_queue_capacity) {
-//            // insufficient receive buffer
-//            free(pkt);
-//            to->rx_dropped++;
-//            continue;
-//        }
-//        list_add_tail(&pkt->list, &to->read_queue);
-//    }
+  struct list_head *p, *q;
+  list_for_each_safe(p, q, &from->write_queue) {
+    struct netpkt *pkt = container_of(p, struct netpkt, list);
+
+    if (from->tokens < pkt->length) {
+      // no more tokens, wait for tokens to be refilled
+      break;
+    }
+
+    from->tokens -= pkt->length; // reduce the token bucket
+    list_del(p); // remove from write_queue
+    --from->write_queue_size;
+    from->write_mem -= pkt->length;
+    from->tx_all += 1;
+
+    if (netsim_random(0, 99) < from->loss) {
+      // packet is lost
+      free(pkt);
+      continue;
+    }
+
+    pkt->timestamp = cur;
+    list_add_tail(p, &from->on_the_fly); // the packet is on the fly
+  }
+
+  list_for_each_safe(p, q, &from->on_the_fly) {
+    struct netpkt *pkt = container_of(p, struct netpkt, list);
+    if (cur < pkt->timestamp + from->latency) {
+      // packet is on its way!
+      break;
+    }
+
+    // move packet to read_queue of the receiver
+    list_del(p);
+    to->rx_all++;
+    if (to->read_mem + pkt->length > to->read_maxmem) {
+      // read_maxmem exceeded
+      free(p); // packet is dropped
+      to->rx_dropped++;
+      continue;
+    }
+    to->read_mem += pkt->length;
+    list_add_tail(p, &to->read_queue);
+    ++to->read_queue_size;
+  }
+
 }
-int netsim_clock_update(struct netsim *sim) {
-//    long cur = netsim_timestamp();
-//
-//    // peer0 -> peer1
-//    int pkts_per_sec = sim->bandwidth / sim->pmtu / 8;
-//    // peer0 -> peer1
-//    netsim_transmit(sim, sim->peers, sim->peers + 1, cur);
-//    // peer1 -> peer0
-//    netsim_transmit(sim, sim->peers + 1, sim->peers, cur);
+long netsim_clock_update(struct netsim *sim, long current_timestamp) {
+  // peer0 -> peer1
+  netsim_transmit(sim, sim->peers, sim->peers + 1, current_timestamp);
+  // peer1 -> peer0
+  netsim_transmit(sim, sim->peers + 1, sim->peers, current_timestamp);
+  return sim->peers[0].refill_timestamp;
 }
 
+int netsim_sleep(long ms) {
+  struct timespec ts = {.tv_sec = ms / 1000, .tv_nsec = ms % 1000 * 1000000};
+  return nanosleep(&ts, NULL);
+}
+
+ssize_t netsim_dev_read(struct netdev *dev, char *buffer, size_t len) {
+  if (list_empty(&dev->read_queue)) {
+    eprintf("netsim_dev_read: read_queue is empty\n");
+    return -1;
+  }
+  struct list_head *p = dev->read_queue.next;
+  struct netpkt *pkt = container_of(p, struct netpkt, list);
+  if (len < pkt->length) {
+    eprintf("netsim_dev_read: buffer is too small\n");
+    return -1;
+  }
+  list_del(p);
+  memcpy(buffer, pkt->data, pkt->length);
+  free(p);
+  return pkt->length;
+}

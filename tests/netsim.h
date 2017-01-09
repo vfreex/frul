@@ -7,18 +7,18 @@
 struct netdev {
   ssize_t (*write)(struct netdev *dev, const char *buffer, size_t len);
   ssize_t (*read)(struct netdev *dev, char *buffer, size_t len);
-  int write_maxmem;
-  int write_mem;
-  int write_queue_size;
+  size_t write_maxmem;
+  size_t write_mem;
+  size_t write_queue_size;
   struct list_head write_queue;
-  int read_maxmem;
-  int read_mem;
-  int read_queue_size;
+  size_t read_maxmem;
+  size_t read_mem;
+  size_t read_queue_size;
   struct list_head read_queue;
   struct list_head on_the_fly;
-  int rx_all, rx_dropped;
-  int tx_all, tx_dropped;
-  int mtu;
+  size_t rx_all, rx_dropped;
+  size_t tx_all, tx_dropped;
+  size_t mtu;
   long bandwidth;
   int latency;
   int loss;
@@ -37,6 +37,12 @@ struct netsim {
   struct netdev peers[2];
 };
 
+long netsim_timestamp();
+int netsim_random(int min, int max);
+int netsim_sleep(long ms);
+
 struct netsim *netsim_create(long bandwidth, int latency, int loss);
+ssize_t netsim_dev_write(struct netdev *dev, const char *buffer, size_t len);
+long netsim_clock_update(struct netsim *sim, long current_timestamp);
 
 #endif
