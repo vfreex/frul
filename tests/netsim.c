@@ -14,6 +14,11 @@
 #include "debug.h"
 #include "netsim.h"
 
+#define FRUL_DEFAULT_MTU 1500
+#define FRUL_DEFAULT_MAX_WMEM 10000 * 1500
+#define FRUL_DEFAULT_MAX_RMEM 0
+
+
 static void netsim_dev_init(struct netdev *dev, size_t wmem, size_t rmem, size_t mtu,
                             long bandwidth, int latency, int loss) {
   assert(dev != NULL);
@@ -36,8 +41,8 @@ struct netsim *netsim_create(long bandwidth, int latency, int loss) {
   struct netsim *p = malloc(sizeof(struct netsim));
   if (p) {
     memset(p, 0, sizeof(struct netsim));
-    netsim_dev_init(p->peers, 10000 * 1500, 10000* 1500, 1500, 50 * 1000000L, 200, 5);
-    netsim_dev_init(p->peers + 1, 10000* 1500, 10000* 1500, 1500, 50 * 1000000L, 200, 5);
+    netsim_dev_init(p->peers, FRUL_DEFAULT_MAX_WMEM, FRUL_DEFAULT_MAX_RMEM, FRUL_DEFAULT_MTU, 50 * 1000000L, 200, 5);
+    netsim_dev_init(p->peers + 1, FRUL_DEFAULT_MAX_WMEM, FRUL_DEFAULT_MAX_RMEM, FRUL_DEFAULT_MTU, 50 * 1000000L, 200, 5);
   }
   return p;
 }
@@ -54,13 +59,16 @@ ssize_t netsim_dev_write(struct netdev *dev, const char *buffer, size_t len) {
     eprintf("packet is too large (current is %zu, maximum is %zu)\n", len, dev->mtu);
     return -1;
   }
+  spinlock_lock(&dev->write_queue_lock);
   size_t new_writemem = dev->write_mem + len;
-  if (new_writemem > dev->write_maxmem) {
+  if (dev->write_maxmem && new_writemem > dev->write_maxmem) {
+    spinlock_unlock(&dev->write_queue_lock);
     eprintf("maximum write_mem exceeded\n");
     return -1;
   }
   struct netpkt *pkt = malloc(sizeof(struct netpkt) + len);
   if (!pkt) {
+    spinlock_unlock(&dev->write_queue_lock);
     eprintf("malloc error\n");
     return -1;
   }
@@ -69,6 +77,7 @@ ssize_t netsim_dev_write(struct netdev *dev, const char *buffer, size_t len) {
   list_add_tail(&pkt->list, &dev->write_queue);
   dev->write_mem = new_writemem;
   dev->write_queue_size++;
+  spinlock_unlock(&dev->write_queue_lock);
   return 0;
 }
 
@@ -91,6 +100,7 @@ static long netsim_transmit(struct netsim *sim, struct netdev *from, struct netd
   from->refill_timestamp = cur + TOKEN_REFILL_INTERVAL;
 
   struct list_head *p, *q;
+  spinlock_lock(&from->write_queue_lock);
   list_for_each_safe(p, q, &from->write_queue) {
     struct netpkt *pkt = container_of(p, struct netpkt, list);
 
@@ -112,9 +122,15 @@ static long netsim_transmit(struct netsim *sim, struct netdev *from, struct netd
     }
 
     pkt->timestamp = cur;
-    list_add_tail(p, &from->on_the_fly); // the packet is on the fly
-  }
 
+    // the packet is on the fly
+    spinlock_lock(&from->on_the_fly_queue_lock);
+    list_add_tail(p, &from->on_the_fly);
+    spinlock_unlock(&from->on_the_fly_queue_lock);
+  }
+  spinlock_unlock(&from->write_queue_lock);
+
+  spinlock_lock(&from->on_the_fly_queue_lock);
   list_for_each_safe(p, q, &from->on_the_fly) {
     struct netpkt *pkt = container_of(p, struct netpkt, list);
     if (cur < pkt->timestamp + from->latency) {
@@ -124,8 +140,9 @@ static long netsim_transmit(struct netsim *sim, struct netdev *from, struct netd
 
     // move packet to read_queue of the receiver
     list_del(p);
+    spinlock_lock(&to->read_queue_lock);
     to->rx_all++;
-    if (to->read_mem + pkt->length > to->read_maxmem) {
+    if (to->read_maxmem && to->read_mem + pkt->length > to->read_maxmem) {
       // read_maxmem exceeded
       free(p); // packet is dropped
       to->rx_dropped++;
@@ -134,7 +151,9 @@ static long netsim_transmit(struct netsim *sim, struct netdev *from, struct netd
     to->read_mem += pkt->length;
     list_add_tail(p, &to->read_queue);
     ++to->read_queue_size;
+    spinlock_unlock(&to->read_queue_lock);
   }
+  spinlock_unlock(&from->on_the_fly_queue_lock);
 
 }
 long netsim_clock_update(struct netsim *sim, long current_timestamp) {
@@ -151,17 +170,21 @@ int netsim_sleep(long ms) {
 }
 
 ssize_t netsim_dev_read(struct netdev *dev, char *buffer, size_t len) {
+  spinlock_lock(&dev->read_queue_lock);
   if (list_empty(&dev->read_queue)) {
+    spinlock_unlock(&dev->read_queue_lock);
     eprintf("netsim_dev_read: read_queue is empty\n");
     return -1;
   }
   struct list_head *p = dev->read_queue.next;
   struct netpkt *pkt = container_of(p, struct netpkt, list);
   if (len < pkt->length) {
+    spinlock_unlock(&dev->read_queue_lock);
     eprintf("netsim_dev_read: buffer is too small\n");
     return -1;
   }
   list_del(p);
+  spinlock_unlock(&dev->read_queue_lock);
   memcpy(buffer, pkt->data, pkt->length);
   free(p);
   return pkt->length;
