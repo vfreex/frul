@@ -12,34 +12,32 @@ typedef uint64_t __be64;
 
 struct frul_hdr {
   char ver;
-  char reserved;
 #if  __LITTLE_ENDIAN
-  __be16 f_res1: 8,
-      f_init: 1,
+  char f_opt: 1,
       f_ack: 1,
       f_conn: 1,
       f_shut: 1,
       f_comp: 1,
-      f_opt: 1,
-      f_res2: 2;
+      f_init: 1,
+      f_res: 2;
 #elif __BIG_ENDIAN
-  __be16 f_res1: 8,
-        f_res2: 2,
-        f_init: 1,
-        f_comp: 1,
-        f_shut: 1,
-        f_conn: 1,
-        f_ack: 1,
-        f_opt: 1;
+  char f_res: 2,
+       f_init: 1,
+       f_comp: 1,
+       f_shut: 1,
+       f_conn: 1,
+       f_ack: 1,
+       f_opt: 1;
 #else
 #error "Could not determine byte order."
 #endif
+  __be16 len;
   __be32 seq;
   __be32 ack_seq;
   __be32 window;
   __be16 ts;
   __be16 ts_echo;
-  __be32 options[];
+  __be32 options[0];
 };
 
 enum frul_state {
@@ -89,8 +87,8 @@ struct frulcb {
 
 struct frul_buf {
   struct list_head list;
-  size_t data_len;
-  char data[];
+  size_t seg_len;
+  char seg[0];
 };
 
 #define FRUL_PROTO_VERSION 1
@@ -104,6 +102,8 @@ int frul_input(struct frulcb *frul, char *buffer, size_t n);
 int frul_init(struct frulcb *frul);
 
 int frul_listen(struct frulcb *frul, bool listen);
+
+int frul_connect(struct frulcb *frul);
 
 int frul_send(struct frulcb *frul, const char *buffer, size_t n);
 
