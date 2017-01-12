@@ -13,7 +13,7 @@
 #include <arpa/inet.h>
 
 struct userdata {
-  int clientsock;
+  int clientsock, serversock;
   struct sockaddr_in from;
   struct sockaddr_in to;
 };
@@ -27,6 +27,26 @@ ssize_t test_output(const void *buffer, size_t n, void *userdata) {
 static int test_frul_connect() {
   struct userdata mydata;
   memset(&mydata, 0, sizeof(struct userdata));
+  mydata.from.sin_family = AF_INET;
+  mydata.from.sin_port = htons(8000);
+  mydata.to.sin_family = AF_INET;
+  mydata.to.sin_port = htons(8001);
+  inet_pton(AF_INET, "127.0.0.1", &mydata.from.sin_addr);
+  inet_pton(AF_INET, "127.0.0.2", &mydata.to.sin_addr);
+
+  int r;
+  mydata.serversock = socket(AF_INET, SOCK_DGRAM, 0);
+  if (mydata.serversock == -1) {
+    eprintf("socket() failed.\n");
+    return -1;
+  }
+
+
+  r = listen(mydata.serversock, 100);
+  if (r == -1) {
+    perror("listen() failed");
+    return -1;
+  }
 
   mydata.clientsock = socket(AF_INET, SOCK_DGRAM, 0);
   if (mydata.clientsock == -1) {
@@ -34,13 +54,6 @@ static int test_frul_connect() {
     return -1;
   }
 
-  mydata.from.sin_family = AF_INET;
-  mydata.from.sin_port = htons(8000);
-  mydata.to.sin_family = AF_INET;
-  mydata.to.sin_port = htons(8001);
-  inet_pton(AF_INET, "127.0.0.1", &mydata.from.sin_addr);
-  inet_pton(AF_INET, "127.0.0.2", &mydata.to.sin_addr);
-  int r;
   r = bind(mydata.clientsock, (struct sockaddr *) &mydata.from, sizeof(mydata.from));
   if (r == -1) {
     eprintf("bind error.\n");

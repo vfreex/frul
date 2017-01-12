@@ -3,6 +3,9 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+
+#include <time.h>
+
 #include "endian.h"
 #include "list.h"
 
@@ -40,6 +43,8 @@ struct frul_hdr {
   __be32 options[0];
 };
 
+#define FRUL_HDR_LEN (sizeof(struct frul_hdr))
+
 enum frul_state {
   FRUL_CLOSED,
   FRUL_LISTEN,
@@ -61,7 +66,8 @@ enum frul_errno {
   FRUL_E_NOTIMPL,
   FRUL_E_WOULDBLOCK,
   FRUL_E_IO,
-  FRUL_E_WOULDFRAG
+  FRUL_E_WOULDFRAG,
+  FRUL_E_INVSEG,
 };
 
 struct frulcb {
@@ -83,6 +89,7 @@ struct frulcb {
   size_t read_buffer_limit;
   struct list_head write_queue;
   struct list_head *send_head;
+  long base_timestamp;
 };
 
 struct frul_buf {
@@ -97,7 +104,7 @@ struct frul_buf {
 #define FRUL_MAX_SEND_BUFFER 100000
 #define FRUL_INITIAL_CWND 2
 
-int frul_input(struct frulcb *frul, char *buffer, size_t n);
+int frul_input(struct frulcb *frul, const char *buffer, size_t n);
 
 int frul_init(struct frulcb *frul);
 

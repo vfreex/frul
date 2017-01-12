@@ -34,6 +34,9 @@ static int frul_put_write_queue(struct frulcb *frul, struct frul_buf *buf) {
     frul->errno = FRUL_E_WOULDBLOCK;
     return -1;
   }
+  if (list_empty(&frul->write_queue)) {
+    frul->send_head = &buf->list;
+  }
   list_add_tail(&buf->list, &frul->write_queue);
   return 0;
 }
@@ -65,10 +68,11 @@ static long frul_timestamp() {
 int frul_flush(struct frulcb *frul) {
   ssize_t bytes_sent;
   struct list_head *p, *q;
-  list_for_each_safe(p, q, &frul->write_queue) {
+  for (p = frul->send_head; p && p != &frul->write_queue; p = q->next) {
+    q = p;
     struct frul_buf *buf = list_entry(p, struct frul_buf, list);
     struct frul_hdr *hdr = frul_seg_hdr(buf);
-    hdr->ts = htons((uint16_t)frul_timestamp());
+    hdr->ts = htons((uint16_t)(frul_timestamp() - frul->base_timestamp));
     hdr->seq = htonl(0x12345678);
     hdr->window = htonl((uint32_t)(frul->read_buffer_limit - frul->read_buffer_used));
     bytes_sent = frul->output(buf->seg, buf->seg_len, frul->userdata);
@@ -79,8 +83,6 @@ int frul_flush(struct frulcb *frul) {
       frul->errno = FRUL_E_WOULDFRAG;
       return -1;
     }
-    list_del(&buf->list);
-    frul_buf_free(buf);
   }
   return 0;
 }
@@ -97,6 +99,7 @@ int frul_connect(struct frulcb *frul) {
     retval = -1;
     goto cleanup;
   }
+  frul->base_timestamp = frul_timestamp();
   struct frul_hdr *hdr = frul_seg_hdr(buf);
   hdr->ver = FRUL_PROTO_VERSION;
   hdr->f_init = 1;
@@ -127,5 +130,48 @@ int frul_recv(struct frulcb *frul, char *buffer, size_t n) {
 }
 
 int frul_close(struct frulcb *frul) {
+  return -1;
+}
 
+struct frul_buf *frul_seg_parse(const char *buffer, size_t n)
+{
+  struct frul_buf *dest;
+  assert(buffer);
+  if (n < FRUL_HDR_LEN) {
+    return NULL;
+  }
+  // FIXME: unaligned access risk
+  const struct frul_hdr *src = (struct frul_hdr *) buffer;
+
+  if (src->ver != FRUL_PROTO_VERSION) {
+    // unsuported version
+    return NULL;
+  }
+  if (src->len + FRUL_HDR_LEN < n) {
+    // len mismatch
+    return NULL;
+  }
+  dest = frul_buf_new(src->len);
+  if (dest)
+    memcpy(dest->seg, src, src->len);
+  return dest;
+}
+
+int frul_input(struct frulcb *frul, const char *buffer, size_t n)
+{
+  int retval = 0;
+  assert(frul && buffer);
+  if (frul->state == FRUL_CLOSED) {
+    frul->errno = FRUL_E_STATE;
+    retval = -1;
+    goto cleanup;
+  }
+  struct frul_buf *buf = frul_seg_parse(buffer, n);
+  if (!buf) {
+    frul->errno = FRUL_E_INVSEG;
+    retval = -1;
+    goto cleanup;
+  }
+cleanup:
+  return retval;
 }
