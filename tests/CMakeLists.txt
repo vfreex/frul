@@ -1,4 +1,4 @@
-add_executable(test_basic main.c test_basic.c netsim.c test_frul.c)
+add_executable(test_basic main.c test_basic.c netsim.c)
 target_link_libraries(test_basic frul pthread)
 
 add_executable(test_frul test_frul.c)

@@ -90,6 +90,7 @@ struct frulcb {
   struct list_head write_queue;
   struct list_head *send_head;
   long base_timestamp;
+  char cookie_salt[16];
 };
 
 struct frul_buf {
@@ -104,7 +105,10 @@ struct frul_buf {
 #define FRUL_MAX_SEND_BUFFER 100000
 #define FRUL_INITIAL_CWND 2
 
-int frul_input(struct frulcb *frul, const char *buffer, size_t n);
+#define FRUL_COOKIE_SPIN (60 * 60 * 1000L) /* 1 min */
+#define FRUL_COOKIE_LEN (256 / 8) /* in bytes */
+
+int frul_input(struct frulcb *frul, const char *buffer, size_t n, void *src_addr, size_t src_addr_len);
 
 int frul_init(struct frulcb *frul);
 

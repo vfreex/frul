@@ -8,6 +8,9 @@
 #include <time.h>
 #include <arpa/inet.h>
 
+#include <openssl/sha.h>
+#include <openssl/rand.h>
+
 int frul_init(struct frulcb *frul) {
   memset(frul, 0, sizeof(struct frulcb));
   INIT_LIST_HEAD(&frul->write_queue);
@@ -15,6 +18,8 @@ int frul_init(struct frulcb *frul) {
   frul->mss = FRUL_DEFAULT_MSS;
   frul->read_buffer_limit = FRUL_MAX_RECV_BUFFER;
   frul->write_buffer_limit = FRUL_MAX_SEND_BUFFER;
+
+  RAND_pseudo_bytes((unsigned char *) frul->cookie_salt, sizeof(frul->cookie_salt));
   return 0;
 }
 
@@ -72,9 +77,9 @@ int frul_flush(struct frulcb *frul) {
     q = p;
     struct frul_buf *buf = list_entry(p, struct frul_buf, list);
     struct frul_hdr *hdr = frul_seg_hdr(buf);
-    hdr->ts = htons((uint16_t)(frul_timestamp() - frul->base_timestamp));
+    hdr->ts = htons((uint16_t) (frul_timestamp() - frul->base_timestamp));
     hdr->seq = htonl(0x12345678);
-    hdr->window = htonl((uint32_t)(frul->read_buffer_limit - frul->read_buffer_used));
+    hdr->window = htonl((uint32_t) (frul->read_buffer_limit - frul->read_buffer_used));
     bytes_sent = frul->output(buf->seg, buf->seg_len, frul->userdata);
     if (bytes_sent < 0) {
       frul->errno = FRUL_E_IO;
@@ -133,8 +138,7 @@ int frul_close(struct frulcb *frul) {
   return -1;
 }
 
-struct frul_buf *frul_seg_parse(const char *buffer, size_t n)
-{
+struct frul_buf *frul_seg_parse(const char *buffer, size_t n) {
   struct frul_buf *dest;
   assert(buffer);
   if (n < FRUL_HDR_LEN) {
@@ -153,12 +157,46 @@ struct frul_buf *frul_seg_parse(const char *buffer, size_t n)
   }
   dest = frul_buf_new(src->len);
   if (dest)
-    memcpy(dest->seg, src, src->len);
+    memcpy(dest->seg, src, FRUL_HDR_LEN + src->len);
   return dest;
 }
 
-int frul_input(struct frulcb *frul, const char *buffer, size_t n)
-{
+static int frul_gen_cookie(const void *src,
+                           size_t src_len,
+                           long timestamp,
+                           const char *salt,
+                           size_t salt_size,
+                           char *hash,
+                           size_t hash_size) {
+  assert(src);
+  assert(hash);
+  assert(hash_size >= SHA256_DIGEST_LENGTH);
+  int r;
+  SHA256_CTX sha256;
+  r = SHA256_Init(&sha256);
+  if (!r)
+    return -1;
+  r = SHA256_Update(&sha256, src, sizeof(struct sockaddr_in));
+  if (!r)
+    return -1;
+  long spin = timestamp / FRUL_COOKIE_SPIN;
+  r = SHA256_Update(&sha256, &spin, sizeof(spin));
+  if (!r)
+    return -1;
+  r = SHA256_Update(&sha256, &salt, salt_size);
+  if (!r)
+    return -1;
+  r = SHA256_Final((unsigned char *) hash, &sha256);
+  if (!r)
+    return -1;
+  return 0;
+}
+
+static int frul_handle_init(struct frulcb *frul) {
+
+}
+
+int frul_input(struct frulcb *frul, const char *buffer, size_t n, void *src_addr, size_t src_addr_len) {
   int retval = 0;
   assert(frul && buffer);
   if (frul->state == FRUL_CLOSED) {
@@ -172,6 +210,36 @@ int frul_input(struct frulcb *frul, const char *buffer, size_t n)
     retval = -1;
     goto cleanup;
   }
-cleanup:
+
+  int r;
+  struct frul_hdr *hdr = frul_seg_hdr(buf);
+  struct frul_buf *reply = NULL;
+  if (hdr->f_init) {
+    // a client is attempting to connect
+    reply = frul_buf_new(FRUL_COOKIE_LEN);
+    if (!reply) {
+      frul->errno = FRUL_E_NOMEM;
+      retval = -1;
+      goto cleanup;
+    }
+    struct frul_hdr *reply_hdr = frul_seg_hdr(reply);
+    reply_hdr->f_init = 1;
+    reply_hdr->f_ack = 1;
+    r = frul_gen_cookie(src_addr,
+                        src_addr_len,
+                        frul_timestamp(),
+                        frul->cookie_salt,
+                        sizeof(frul->cookie_salt),
+                        reply_hdr->options,
+                        FRUL_COOKIE_LEN);
+    frul_put_write_queue(frul, reply);
+    frul_flush(frul);
+
+  }
+
+  cleanup:
+  if (retval) {
+    free(reply);
+  }
   return retval;
 }
