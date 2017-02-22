@@ -8,6 +8,12 @@
 # C
 *.o
 
+# CMake
+CMakeCache.txt
+CMakeFiles/
+Makefile
+*.cmake
+
 # project
 bin/
 lib/

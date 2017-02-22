@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.6)
-project(frul )
+project(frul C)
 set(CMAKE_C_STANDARD 11)
 
 #set(CMAKE_BINARY_DIR ${CMAKE_SOURCE_DIR}/bin)
