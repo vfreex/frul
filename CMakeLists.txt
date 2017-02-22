@@ -11,4 +11,5 @@ set(CMAKE_INSTALL_RPATH  "$ORIGIN/../lib:$ORIGIN/")
 include_directories(include)
 
 add_subdirectory(src)
-
+enable_testing()
+add_subdirectory(tests)

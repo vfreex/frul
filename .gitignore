@@ -13,8 +13,10 @@ CMakeCache.txt
 CMakeFiles/
 Makefile
 *.cmake
+Testing/
 
 # project
 bin/
 lib/
+*.cbp
 

@@ -1,0 +1,1 @@
+add_library(frul SHARED frul.c)
