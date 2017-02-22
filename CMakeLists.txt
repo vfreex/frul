@@ -8,6 +8,8 @@ set(LIBRARY_OUTPUT_PATH ${PROJECT_BINARY_DIR}/lib)
 set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)
 set(CMAKE_INSTALL_RPATH  "$ORIGIN/../lib:$ORIGIN/")
 
+add_definitions(-DDEBUG)
+
 include_directories(include)
 
 add_subdirectory(src)

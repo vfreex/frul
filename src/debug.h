@@ -7,7 +7,7 @@
 #define debug_print(...) \
     do { if (DEBUG) eprintf(__VA_ARGS__); } while(0)
 
-#if DEBUG
+#if _DEBUG || DEBUG
 #define D debug_print
 #else
 #define D

@@ -1,0 +1,32 @@
+//
+// Created by yuxzhu on 2/22/17.
+//
+
+#ifndef FRUL_CONSTANT_H
+#define FRUL_CONSTANT_H
+
+enum frul_errno {
+  FRUL_E_SUCCESS,
+  FRUL_E_UNKNOWN,
+  FRUL_E_STATE,
+  FRUL_E_NOMEM,
+  FRUL_E_RANGE,
+  FRUL_E_UNSUPP,
+  FRUL_E_NOTIMPL,
+  FRUL_E_WOULDBLOCK,
+  FRUL_E_IO,
+  FRUL_E_WOULDFRAG,
+  FRUL_E_INVSEG,
+  FRUL_E_3RDPARTY,
+  FRUL_E_SYSCALL,
+};
+
+#define FRUL_DEFAULT_MSS 1400
+#define FRUL_MAX_RECV_BUFFER 100000
+#define FRUL_MAX_SEND_BUFFER 100000
+#define FRUL_INITIAL_CWND 2
+
+#define FRUL_COOKIE_SPIN (60 * 60 * 1000L) /* 1 min */
+#define FRUL_COOKIE_LEN (256 / 8) /* in bytes */
+
+#endif //FRUL_CONSTANT_H
