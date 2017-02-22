@@ -81,6 +81,31 @@ static inline void frul_buf_free(struct frul_buf *buf) {
   free(buf);
 }
 
+struct frul_buf *fsess_mkbuf(fsess *session, const void *buffer, size_t n)
+{
+  assert(session);
+  assert(n == 0 || buffer);
+  size_t seg_size = n + FRUL_HDR_LEN;
+  if (seg_size > session->mss) {
+    session->errno = FRUL_E_RANGE;
+    return NULL;
+  }
+  if (seg_size + session->write_buffer_used > session->write_buffer_limit) {
+    session->errno = FRUL_E_WOULDBLOCK;
+    return NULL;
+  }
+  struct frul_buf *buf = frul_buf_new(n);
+  if (!buf) {
+    session->errno = FRUL_E_NOMEM;
+    return NULL;
+  }
+  struct frul_hdr *hdr = frul_seg_hdr(buf);
+  hdr->seq = htonl(session->send_next);
+  memcpy(hdr->data, buffer, n);
+  return buf;
+}
+
+
 ssize_t fsess_transmit(fsess *session)
 {
   assert(session);
@@ -92,6 +117,20 @@ ssize_t fsess_transmit(fsess *session)
   if (session->unacked >= max_unacked) {
     D("session->unacked >= max_unacked: %u/%u\n", session->unacked, max_unacked);
     return 0;
+  }
+  if (!session->send_head) { // FIXME: shouldn't ack acks
+    // nothing in write_queue, send pure ack
+    struct frul_buf *buf = fsess_mkbuf(session, NULL, 0);
+    if (!buf) {
+      frul_buf_free(buf);
+      return -1;
+    }
+    struct frul_hdr *hdr = frul_seg_hdr(buf);
+    hdr->f_ack = 1;
+    list_add_tail(&buf->list, &session->write_queue);
+    session->write_buffer_used += buf->seg_len;
+    session->send_next += buf->seg_len;
+    session->send_head = &buf->list;
   }
   ssize_t sent_bytes = 0;
   while (session->send_head) {
@@ -128,30 +167,16 @@ ssize_t fsess_send(fsess *session, const void *buffer, size_t n) {
     return -1;
   }
   int retval = 0;
-  size_t seg_size = n + FRUL_HDR_LEN;
-  if (seg_size > session->mss) {
-    session->errno = FRUL_E_RANGE;
-    retval = -1;
-    goto cleanup;
-  }
-  if (seg_size + session->write_buffer_used > session->write_buffer_limit) {
-    session->errno = FRUL_E_WOULDBLOCK;
-    retval = -1;
-    goto cleanup;
-  }
-  struct frul_buf *buf = frul_buf_new(n);
+  struct frul_buf *buf = fsess_mkbuf(session, buffer, n);
   if (!buf) {
-    session->errno = FRUL_E_NOMEM;
     retval = -1;
     goto cleanup;
   }
   struct frul_hdr *hdr = frul_seg_hdr(buf);
-  hdr->f_init = 1;
-  hdr->seq = htonl(session->send_next);
-  memcpy(hdr->data, buffer, n);
-  session->write_buffer_used += seg_size;
-  session->send_next += seg_size;
+  hdr->f_ack = 1;
   list_add_tail(&buf->list, &session->write_queue);
+  session->write_buffer_used += buf->seg_len;
+  session->send_next += buf->seg_len;
   if (session->write_queue.next == &buf->list) {
     // the newly inserted frul_buf is the only one in write_queue
     session->send_head = &buf->list;
@@ -160,8 +185,7 @@ ssize_t fsess_send(fsess *session, const void *buffer, size_t n) {
   if (session->unacked == 0) { // active transmit
     fsess_transmit(session);
   }
-
-  return 0;
+  return buf->seg_len;
   cleanup:
   if (retval == -1) { // on error
     frul_buf_free(buf);
@@ -199,10 +223,11 @@ struct frul_buf *frul_seg_parse(const char *buffer, size_t n) {
 }
 
 ssize_t fsess_input(fsess *session, const void *buffer, size_t n) {
+  // parse
   assert(session);
   assert(buffer);
   D("fsess_input: fsess_input called, size=%zu\n", n);
-  struct frul_buf *buf = frul_seg_parse(buffer, n);
+  struct frul_buf *buf = frul_seg_parse(buffer, n); // FIXME: memory leak
   if (!buf) {
     D("fsess_input: frul_seg_parse error\n");
     return -1;
@@ -211,12 +236,24 @@ ssize_t fsess_input(fsess *session, const void *buffer, size_t n) {
     D("fsess_input: no enough recv buffer\n");
     return -1;
   }
-  list_add_tail(&buf->list, &session->read_queue);
-  session->read_buffer_used += buf->seg_len;
-  if (session->read_queue.next == &buf->list) {
-    session->recv_head = &buf->list;
+
+  // update ack-seq
+  struct frul_hdr *seg = (struct frul_hdr *) buf;
+  if (htonl(seg->seq) != session->recv_next) {
+    // received unexpected seq number
+    frul_buf_free(buf); // drop
+  } else {
+    // queue
+    session->recv_next += buf->seg_len;
+    list_add_tail(&buf->list, &session->read_queue);
+    session->read_buffer_used += buf->seg_len;
+    if (session->read_queue.next == &buf->list) {
+      session->recv_head = &buf->list;
+    }
   }
-  fsess_transmit(session); /* ack-clocking */
+
+  // ack-clocking
+  fsess_transmit(session);
   return buf->seg_len;
 }
 

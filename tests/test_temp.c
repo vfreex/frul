@@ -47,11 +47,33 @@ int main()
     perror("bind");
     return -1;
   }
+
+  struct sockaddr_in client_addr;
+  client_addr.sin_family = AF_INET;
+  client_addr.sin_port = htons(7777);
+  r = inet_pton(AF_INET, "127.0.0.1", &client_addr.sin_addr);
+  if (r == -1) {
+    perror("inet_pton");
+    return -1;
+  }
+  r = bind(clientsock, (struct sockaddr*)&client_addr, sizeof(struct sockaddr_in));
+  if (r == -1) {
+    perror("bind");
+    return -1;
+  }
+
   r = connect(clientsock, (struct sockaddr*)&server_addr, sizeof(struct sockaddr_in));
   if (r == -1) {
     perror("connect");
     return -1;
   }
+
+  r = connect(serversock, (struct sockaddr*)&client_addr, sizeof(struct sockaddr_in));
+  if (r == -1) {
+    perror("connect");
+    return -1;
+  }
+
   fsess *client = fsess_new();
   client->output = client_output;
   fsess *server = fsess_new();
@@ -67,6 +89,10 @@ int main()
   char buffer[1500];
   received = fsess_recv(server, buffer, 1500);
   printf("server: %zd bytes received, data=%s\n",received, buffer);
+
+  received = recvfrom(clientsock, low_buffer, 1500, 0, NULL, 0);
+  printf("client: low level - %zd bytes data received\n", received);
+  fsess_input(client, low_buffer, received);
 
   printf("hello\n");
   return 0;
