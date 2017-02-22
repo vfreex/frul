@@ -1,0 +1,14 @@
+# common
+.*
+!.gitignore
+*.bak
+~*
+*.log
+
+# C
+*.o
+
+# project
+bin/
+lib/
+
