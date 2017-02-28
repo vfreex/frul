@@ -21,28 +21,39 @@ enum frul_state {
 typedef struct fsess {
   enum frul_errno errno;
   enum frul_state state;
-  size_t mss;
-  size_t cwnd; /* congestion window */
-  size_t rwnd;
-  size_t awnd; /* receiver’s advertised window */
+  size_t mss; // not including the furl header
+  long base_timestamp;
+
+  /* callbacks */
   void *userdata;
   ssize_t (*output)(const void *buffer, size_t n, void *userdata);
   void (*recv_ready)(size_t n);
 
+  /* sender */
   size_t write_buffer_used;
   size_t write_buffer_limit;
-  size_t read_buffer_used;
-  size_t read_buffer_limit;
+  uint32_t send_next;
+  uint32_t send_una;
+  /* Size of sender's flow window, recorded from remote peer's advertised window.
+   * Sender's flow windows is range [send_una, send_una + wnd).
+   * */
+  size_t wnd;
+  size_t cwnd; /* congestion window */
   struct list_head write_queue;
   struct list_head *send_head;
-  size_t unacked;
+
+  /* receiver */
+  size_t read_buffer_used;
+  size_t read_buffer_limit;
+  size_t rwnd;
   struct list_head read_queue;
   struct list_head *recv_head;
-
-  long base_timestamp;
-  long ack_timestamp;
-  uint32_t send_next;
+  uint32_t recv_user;
   uint32_t recv_next;
+  uint32_t recv_last;
+
+  //size_t unacked;
+  long ack_timestamp;
 } fsess;
 
 typedef struct frul_buf {
