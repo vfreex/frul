@@ -53,7 +53,7 @@ typedef struct fsess {
   uint32_t recv_last;
 
   //size_t unacked;
-  long ack_timestamp;
+  uint32_t ack_timestamp;
 } fsess;
 
 typedef struct frul_buf {

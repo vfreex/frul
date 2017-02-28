@@ -99,7 +99,8 @@ static ssize_t fsess_call_output(fsess *session, struct frul_hdr *seg) {
   if (seg->f_ack) {
     if (!seg->ack_seq)
       seg->ack_seq = htonl(session->recv_next);
-    // update ts_echo?
+    if (!seg->ts_echo && session->ack_timestamp)
+      seg->ts_echo = htonl(session->ack_timestamp);
   }
   seg->window = htonl((uint32_t)(session->recv_user + session->read_buffer_limit - session->recv_next));
   long now = (uint32_t)frul_timestamp();
@@ -323,6 +324,7 @@ ssize_t fsess_input(fsess *session, const void *buffer, size_t n) {
     // advance recv_head
     session->recv_head = &buf->list;
     // send ack
+    session->ack_timestamp = seg->ts_echo;
     fsess_ack(session, ntohl(seg->ts_echo));
     fsess_recycle_write_queue(session);
   }
